@@ -1,0 +1,50 @@
+/*
+ * boards/particle_argon.overlay
+ * Device tree overlay: enable I2C0 and attach MAX30102 pulse oximeter.
+ * SDA = P0.26, SCL = P0.27 (Particle Argon nRF52840 defaults).
+ *
+ * Flash layout override: compile Zephyr to run from 0x30000 so it
+ * lands in the Particle bootloader's writable user-app space and can
+ * be flashed via dfu-util without needing an SWD programmer.
+ */
+
+/ {
+    chosen {
+        zephyr,code-partition = &particle_app;
+        zephyr,console    = &cdc_acm_uart0;
+        zephyr,shell-uart = &cdc_acm_uart0;
+    };
+};
+
+&zephyr_udc0 {
+    cdc_acm_uart0: cdc_acm_uart0 {
+        compatible = "zephyr,cdc-acm-uart";
+        label = "CDC_ACM_0";
+    };
+};
+
+&flash0 {
+    partitions {
+        compatible = "fixed-partitions";
+        #address-cells = <1>;
+        #size-cells = <1>;
+
+        /* Particle user-app area: 0x30000–0xEFFFF (768 KB) */
+        particle_app: partition@30000 {
+            label = "particle-app";
+            reg = <0x00030000 0x000C0000>;
+        };
+    };
+};
+
+&i2c0 {
+    status = "okay";
+    clock-frequency = <I2C_BITRATE_STANDARD>;  /* 100 kHz */
+
+    max30102: max30102@57 {
+        compatible = "maxim,max30102";
+        reg = <0x57>;
+        int-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;  /* P0.02 per schematic */
+        status = "okay";
+    };
+};
