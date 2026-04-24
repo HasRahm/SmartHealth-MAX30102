@@ -39,20 +39,26 @@ Firmware for the **Particle Argon** (nRF52840) that reads **SpO2** and **heart r
 particle login
 ```
 
-### 3. Compile the firmware
+### 3. Clone the repo and navigate to it
 ```bash
-particle compile argon particle_app/ --saveTo firmware.bin
+git clone https://github.com/HasRahm/SmartHealth-MAX30102.git
+cd SmartHealth-MAX30102
 ```
 
-### 4. Put the Argon into DFU mode
+### 4. Compile the firmware
+```bash
+particle compile argon particle_app/ --saveTo firmware_particle.bin
+```
+
+### 5. Put the Argon into DFU mode
 ```bash
 particle usb dfu
 ```
 The RGB LED will turn **yellow**.
 
-### 5. Flash the firmware
+### 6. Flash the firmware
 ```bash
-particle flash --local firmware.bin
+particle flash --local firmware_particle.bin
 ```
 
 ### 6. Open serial monitor
