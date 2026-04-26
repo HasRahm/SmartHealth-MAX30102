@@ -112,29 +112,52 @@ int max30102_init(void)
                     part_id == 0x15 ? "(OK)" : "(unexpected — continuing anyway)");
     /* Do NOT abort on wrong ID — many clone modules return 0x00 until reset */
 
-    /* Reset */
+    /* Reset — wait for reset bit to self-clear (up to 100 ms) */
     reg_write(REG_MODE_CONFIG, 0x40);
-    delay(10);
+    delay(100);
+    {
+        uint8_t rst = 0xFF;
+        for (int i = 0; i < 20; i++) {
+            reg_read(REG_MODE_CONFIG, &rst);
+            if (!(rst & 0x40)) break;
+            delay(10);
+        }
+        Serial.printlnf("MAX30102 post-reset MODE=0x%02X", rst);
+    }
 
-    /* FIFO: 4-sample average, no rollover, almost-full = 17 */
-    reg_write(REG_FIFO_CONFIG, FIFO_SMP_AVE_4 | 0x0F);
-
-    /* SpO2 mode */
-    reg_write(REG_MODE_CONFIG, MODE_SPO2);
+    /* FIFO: 4-sample average, rollover enabled, almost-full = 17 */
+    reg_write(REG_FIFO_CONFIG, FIFO_SMP_AVE_4 | 0x10 | 0x0F);
 
     /* SpO2 config: ADC 4096 nA, 100 sps, 18-bit pulse width */
     reg_write(REG_SPO2_CONFIG, SPO2_ADC_RGE_4096 | SPO2_SR_100 | SPO2_PW_411US_18BIT);
 
-    /* LED currents ~6 mA */
-    reg_write(REG_LED1_PA, LED_CURRENT_6MA);
-    reg_write(REG_LED2_PA, LED_CURRENT_6MA);
+    /* LED currents — near-max (~38 mA) */
+    reg_write(REG_LED1_PA, 0xC0);
+    reg_write(REG_LED2_PA, 0xC0);
 
     /* Clear FIFO pointers */
     reg_write(REG_FIFO_WR_PTR, 0x00);
     reg_write(REG_OVF_COUNTER, 0x00);
     reg_write(REG_FIFO_RD_PTR, 0x00);
 
-    Serial.printlnf("MAX30102 init OK (part_id=0x%02X)", part_id);
+    /* Set MODE last — clone sensors start sampling only after this trigger */
+    delay(5);
+    reg_write(REG_MODE_CONFIG, MODE_SPO2);
+    delay(100);   /* let first samples populate FIFO */
+
+    /* Readback config registers to confirm writes landed */
+    delay(10);
+    uint8_t mode_rb = 0, spo2_rb = 0, fifo_rb = 0, wr = 0, rd = 0;
+    uint8_t led1_rb = 0, led2_rb = 0;
+    reg_read(REG_MODE_CONFIG,  &mode_rb);
+    reg_read(REG_SPO2_CONFIG,  &spo2_rb);
+    reg_read(REG_FIFO_CONFIG,  &fifo_rb);
+    reg_read(REG_FIFO_WR_PTR, &wr);
+    reg_read(REG_FIFO_RD_PTR, &rd);
+    reg_read(REG_LED1_PA,     &led1_rb);
+    reg_read(REG_LED2_PA,     &led2_rb);
+    Serial.printlnf("MAX30102 init OK | mode=0x%02X spo2=0x%02X fifo=0x%02X led1=0x%02X led2=0x%02X wr=%d rd=%d",
+                    mode_rb, spo2_rb, fifo_rb, led1_rb, led2_rb, wr, rd);
     return 0;
 }
 
@@ -148,7 +171,7 @@ int max30102_read(max30102_data_t *out)
     for (int i = 0; i < SAMPLE_BUF_SIZE; i++) {
         /* Wait for a new sample (FIFO write ptr != read ptr) */
         uint8_t wr, rd;
-        int timeout = 500;   /* ms */
+        int timeout = 2000;  /* ms */
         do {
             reg_read(REG_FIFO_WR_PTR, &wr);
             reg_read(REG_FIFO_RD_PTR, &rd);
@@ -157,6 +180,15 @@ int max30102_read(max30102_data_t *out)
         } while (--timeout > 0);
 
         if (timeout == 0) {
+            /* Diagnose why FIFO isn't filling */
+            uint8_t mode_rb = 0, spo2_rb = 0, fifo_rb = 0, led1_rb = 0, led2_rb = 0;
+            reg_read(REG_MODE_CONFIG, &mode_rb);
+            reg_read(REG_SPO2_CONFIG, &spo2_rb);
+            reg_read(REG_FIFO_CONFIG, &fifo_rb);
+            reg_read(REG_LED1_PA,    &led1_rb);
+            reg_read(REG_LED2_PA,    &led2_rb);
+            Serial.printlnf("FIFO TIMEOUT s=%d | mode=0x%02X spo2=0x%02X fifo=0x%02X led1=0x%02X led2=0x%02X wr=%d rd=%d",
+                            i, mode_rb, spo2_rb, fifo_rb, led1_rb, led2_rb, wr, rd);
             out->valid = false;
             return -1;
         }
@@ -187,8 +219,9 @@ int max30102_read(max30102_data_t *out)
         return 0;
     }
 
-    /* Heart rate via zero-crossing on IR channel */
-    out->heart_rate_bpm = zero_crossings(ir_buf, SAMPLE_BUF_SIZE, dc_ir, 100);
+    /* Heart rate via zero-crossing on IR channel.
+     * Effective sample rate = 100 sps / 4 (FIFO averaging) = 25 sps */
+    out->heart_rate_bpm = zero_crossings(ir_buf, SAMPLE_BUF_SIZE, dc_ir, 25);
 
     /* SpO2:  R = (AC_red/DC_red) / (AC_ir/DC_ir)
      *         → R×1000 = (AC_red × DC_ir × 1000) / (AC_ir × DC_red)
