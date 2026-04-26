@@ -10,7 +10,7 @@
  */
 
 #include "max30102.h"
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 #include <string.h>
 
 LOG_MODULE_REGISTER(max30102, LOG_LEVEL_INF);
@@ -73,11 +73,12 @@ int max30102_init(const max30102_config_t *cfg)
         return ret;
     }
     if (part_id != MAX30102_PART_ID) {
-        LOG_ERR("Wrong PART_ID: expected 0x%02X, got 0x%02X",
-                MAX30102_PART_ID, part_id);
-        return -ENODEV;
+        /* Clone sensors often return 0x00 — warn but continue */
+        LOG_WRN("Unexpected PART_ID: 0x%02X (expected 0x15) — clone sensor?",
+                part_id);
+    } else {
+        LOG_INF("MAX30102 found (PART_ID=0x%02X)", part_id);
     }
-    LOG_INF("MAX30102 found (PART_ID=0x%02X)", part_id);
 
     /* 2. Software reset */
     ret = reg_write(REG_MODE_CONFIG, MODE_RESET);
@@ -255,15 +256,20 @@ static void run_algorithm(max30102_data_t *data)
     uint32_t ir_dc, ir_ac;
     compute_dc_ac(ir_buf, n, h, &ir_dc, &ir_ac);
 
-    /* Low IR DC = no finger on sensor */
-    if (ir_ac < 500 || ir_dc < 5000) {
+    /* Low IR DC = no finger on sensor (threshold tuned for 0xC0 LED + max ADC range) */
+    if (ir_ac < 1000 || ir_dc < 50000) {
         data->valid          = false;
         data->heart_rate_bpm = -1;
         data->spo2_percent   = -1;
         return;
     }
 
-    uint16_t sr        = decode_sample_rate(g_cfg->sample_rate);
+    uint16_t sr_raw    = decode_sample_rate(g_cfg->sample_rate);
+    /* Effective rate = raw rate / FIFO averaging factor (4 for FIFO_SMP_AVE_4) */
+    uint16_t avg_factor = (g_cfg->sample_avg == FIFO_SMP_AVE_4) ? 4 :
+                          (g_cfg->sample_avg == FIFO_SMP_AVE_8) ? 8 :
+                          (g_cfg->sample_avg == FIFO_SMP_AVE_2) ? 2 : 1;
+    uint16_t sr        = sr_raw / avg_factor;
     uint16_t crossings = count_zero_crossings(ir_buf, n, h, ir_dc);
 
     /* HR [bpm] = (crossings / 2) / (n / sr) * 60 = crossings * sr * 30 / n */

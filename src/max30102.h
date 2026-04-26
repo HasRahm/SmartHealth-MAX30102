@@ -12,8 +12,8 @@
 #ifndef MAX30102_H
 #define MAX30102_H
 
-#include <kernel.h>
-#include <drivers/i2c.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/i2c.h>
 #include <stdint.h>
 #include <stdbool.h>
 
