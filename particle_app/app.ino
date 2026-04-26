@@ -41,7 +41,14 @@ void setup()
 void loop()
 {
     if (!sensor_ok) {
-        Serial.printlnf("[%4u] Sensor init failed — check VCC/SDA/SCL wiring", tick);
+        /* Retry init every tick until sensor comes back */
+        Serial.println("Retrying sensor init...");
+        if (max30102_init() == 0) {
+            sensor_ok = true;
+            Serial.println("Sensor init SUCCESS!");
+        } else {
+            Serial.printlnf("[%4u] Sensor not responding — check VCC/SDA/SCL wiring", tick);
+        }
         tick++;
         delay(READ_INTERVAL_MS);
         return;
@@ -50,7 +57,8 @@ void loop()
     int ret = max30102_read(&reading);
 
     if (ret < 0) {
-        Serial.printlnf("[%4u] ERROR reading sensor (%d)", tick, ret);
+        Serial.printlnf("[%4u] ERROR reading sensor (%d) — will reinit", tick, ret);
+        sensor_ok = false;   /* force reinit next tick */
     } else if (!reading.valid) {
         Serial.printlnf("[%4u] Waiting...  IR=%6u  Red=%6u",
                         tick, reading.ir_raw, reading.red_raw);
