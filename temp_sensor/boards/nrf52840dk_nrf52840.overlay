@@ -1,0 +1,25 @@
+/*
+ * boards/nrf52840dk_nrf52840.overlay
+ *
+ * Adds both MAX30102 and ADS1115 to the arduino_i2c bus.
+ * SDA = P0.26  |  SCL = P0.27
+ */
+
+&arduino_i2c {
+    status = "okay";
+    clock-frequency = <I2C_BITRATE_STANDARD>;  /* 100 kHz */
+
+    /* ── MAX30102 pulse oximeter ── */
+    max30102: max30102@57 {
+        compatible = "maxim,max30101";
+        reg = <0x57>;
+        status = "okay";
+    };
+
+    /* ── ADS1115 ADC (NTC thermistor on AIN0) ── */
+    ads1115: ads1115@48 {
+        compatible = "ti,ads1115";
+        reg = <0x48>;          /* ADDR pin → GND */
+        status = "okay";
+    };
+};

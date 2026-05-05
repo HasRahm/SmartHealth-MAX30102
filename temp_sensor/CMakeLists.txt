@@ -1,0 +1,14 @@
+cmake_minimum_required(VERSION 3.20.0)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(nrf52840_smarthealth)
+
+target_sources(app PRIVATE
+    src/main.c
+    src/temp_sensor.c
+    ../src/max30102.c        # your teammates' existing driver
+)
+
+target_include_directories(app PRIVATE src ../src)
+
+# math.h (log()) — link libm
+target_link_libraries(app PRIVATE m)
